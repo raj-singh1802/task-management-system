@@ -6,6 +6,7 @@ import {
   loginUser,
   refreshTokens,
   logoutUser,
+  getMe,
 } from '../services/auth.service';
 
 export const register = catchAsync(async (req: Request, res: Response) => {
@@ -64,5 +65,14 @@ export const logout = catchAsync(async (req: Request, res: Response) => {
   res.status(200).json({
     success: true,
     message: result.message,
+  });
+});
+
+export const me = catchAsync(async (req: Request, res: Response) => {
+  const user = await getMe(req.user!.userId);
+  res.status(200).json({
+    success: true,
+    message: 'User fetched successfully',
+    data: { user },
   });
 });

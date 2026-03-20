@@ -25,7 +25,10 @@ export const taskSchema = z.object({
   description: z.string().max(500).optional(),
   status: z.enum(['PENDING', 'IN_PROGRESS', 'COMPLETED']).optional(),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH']).optional(),
-  dueDate: z.string().datetime().optional().nullable(),
+  dueDate: z.preprocess(
+    (v) => (v === '' || v === undefined ? null : v),
+    z.string().nullable().optional()
+  ),
 });
 
 export const updateTaskSchema = taskSchema.partial();

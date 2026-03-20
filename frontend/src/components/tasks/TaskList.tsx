@@ -9,7 +9,7 @@ import { TaskForm } from './TaskForm';
 import { Button } from '../ui/Button';
 import { Card, CardContent } from '../ui/Card';
 import toast from 'react-hot-toast';
-import { Plus } from 'lucide-react';
+import { Plus, CheckSquare } from 'lucide-react';
 
 export function TaskList() {
   const queryClient = useQueryClient();
@@ -153,6 +153,3 @@ export function TaskList() {
     </div>
   );
 }
-
-// Just importing an icon for empty state
-import { CheckSquare } from 'lucide-react';

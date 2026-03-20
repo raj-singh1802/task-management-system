@@ -1,82 +1,63 @@
-import prisma from '../config/prisma';
+import { User } from '../models/user.model';
 import { hashPassword, comparePassword } from '../utils/hash';
 import { generateAccessToken, generateRefreshToken, verifyRefreshToken } from '../utils/token';
 import { ApiError } from '../utils/apiError';
 import { RegisterInput, LoginInput } from '../types';
 
 export const registerUser = async (input: RegisterInput) => {
-  // Check if user already exists
-  const existingUser = await prisma.user.findUnique({
-    where: { email: input.email },
-  });
-
+  const existingUser = await User.findOne({ email: input.email });
   if (existingUser) {
     throw new ApiError(409, 'Email already registered');
   }
 
-  // Hash password
   const hashedPassword = await hashPassword(input.password);
 
-  // Create user
-  const user = await prisma.user.create({
-    data: {
-      name: input.name,
-      email: input.email,
-      password: hashedPassword,
-    },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      createdAt: true,
-    },
+  const user = await User.create({
+    name: input.name,
+    email: input.email,
+    password: hashedPassword,
   });
 
-  // Generate tokens
-  const payload = { userId: user.id, email: user.email };
+  const payload = { userId: user._id.toString(), email: user.email };
   const accessToken = generateAccessToken(payload);
   const refreshToken = generateRefreshToken(payload);
 
-  // Store refresh token
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { refreshToken },
-  });
+  user.refreshToken = refreshToken;
+  await user.save();
 
-  return { user, accessToken, refreshToken };
+  return {
+    user: {
+      id: user._id.toString(),
+      name: user.name,
+      email: user.email,
+      createdAt: user.createdAt,
+    },
+    accessToken,
+    refreshToken,
+  };
 };
 
 export const loginUser = async (input: LoginInput) => {
-  // Find user
-  const user = await prisma.user.findUnique({
-    where: { email: input.email },
-  });
-
+  const user = await User.findOne({ email: input.email });
   if (!user) {
     throw new ApiError(401, 'Invalid email or password');
   }
 
-  // Verify password
   const isPasswordValid = await comparePassword(input.password, user.password);
-
   if (!isPasswordValid) {
     throw new ApiError(401, 'Invalid email or password');
   }
 
-  // Generate tokens
-  const payload = { userId: user.id, email: user.email };
+  const payload = { userId: user._id.toString(), email: user.email };
   const accessToken = generateAccessToken(payload);
   const refreshToken = generateRefreshToken(payload);
 
-  // Store refresh token
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { refreshToken },
-  });
+  user.refreshToken = refreshToken;
+  await user.save();
 
   return {
     user: {
-      id: user.id,
+      id: user._id.toString(),
       name: user.name,
       email: user.email,
       createdAt: user.createdAt,
@@ -87,47 +68,44 @@ export const loginUser = async (input: LoginInput) => {
 };
 
 export const refreshTokens = async (token: string) => {
-  // Verify refresh token
   const payload = verifyRefreshToken(token);
 
-  // Find user and validate stored token
-  const user = await prisma.user.findUnique({
-    where: { id: payload.userId },
-  });
-
+  const user = await User.findById(payload.userId);
   if (!user || user.refreshToken !== token) {
     throw new ApiError(401, 'Invalid refresh token');
   }
 
-  // Generate new tokens
-  const newPayload = { userId: user.id, email: user.email };
+  const newPayload = { userId: user._id.toString(), email: user.email };
   const accessToken = generateAccessToken(newPayload);
   const refreshToken = generateRefreshToken(newPayload);
 
-  // Update stored refresh token
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { refreshToken },
-  });
+  user.refreshToken = refreshToken;
+  await user.save();
 
   return { accessToken, refreshToken };
 };
 
 export const logoutUser = async (token: string) => {
-  // Find user with this refresh token
-  const user = await prisma.user.findFirst({
-    where: { refreshToken: token },
-  });
-
+  const user = await User.findOne({ refreshToken: token });
   if (!user) {
     throw new ApiError(401, 'Invalid refresh token');
   }
 
-  // Clear refresh token
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { refreshToken: null },
-  });
+  user.refreshToken = null;
+  await user.save();
 
   return { message: 'Logged out successfully' };
+};
+
+export const getMe = async (userId: string) => {
+  const user = await User.findById(userId).select('-password -refreshToken');
+  if (!user) {
+    throw new ApiError(404, 'User not found');
+  }
+  return {
+    id: user._id.toString(),
+    name: user.name,
+    email: user.email,
+    createdAt: user.createdAt,
+  };
 };

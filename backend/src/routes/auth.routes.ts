@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { register, login, refresh, logout } from '../controllers/auth.controller';
+import { register, login, refresh, logout, me } from '../controllers/auth.controller';
 import { authenticate } from '../middleware/auth.middleware';
 
 const router = Router();
@@ -10,13 +10,7 @@ router.post('/login', login);
 router.post('/refresh', refresh);
 router.post('/logout', logout);
 
-// Protected route — test middleware
-router.get('/me', authenticate, (req, res) => {
-  res.json({
-    success: true,
-    message: 'You are authenticated',
-    data: { user: req.user },
-  });
-});
+// Protected routes
+router.get('/me', authenticate, me);
 
 export default router;

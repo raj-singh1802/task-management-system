@@ -1,19 +1,35 @@
-import prisma from '../config/prisma';
+import mongoose from 'mongoose';
+import { Task } from '../models/task.model';
 import { ApiError } from '../utils/apiError';
 import { TaskInput, TaskQuery } from '../types';
 
+const toObjectId = (id: string) => {
+  if (!mongoose.Types.ObjectId.isValid(id)) throw new ApiError(400, 'Invalid ID');
+  return new mongoose.Types.ObjectId(id);
+};
+
+const serializeTask = (task: any) => ({
+  id: task._id.toString(),
+  title: task.title,
+  description: task.description,
+  status: task.status,
+  priority: task.priority,
+  dueDate: task.dueDate,
+  userId: task.userId.toString(),
+  createdAt: task.createdAt,
+  updatedAt: task.updatedAt,
+});
+
 export const createTask = async (userId: string, input: TaskInput) => {
-  const task = await prisma.task.create({
-    data: {
-      title: input.title,
-      description: input.description,
-      status: input.status || 'PENDING',
-      priority: input.priority || 'MEDIUM',
-      dueDate: input.dueDate ? new Date(input.dueDate) : null,
-      userId,
-    },
+  const task = await Task.create({
+    title: input.title,
+    description: input.description ?? null,
+    status: input.status || 'PENDING',
+    priority: input.priority || 'MEDIUM',
+    dueDate: input.dueDate ? new Date(input.dueDate) : null,
+    userId: toObjectId(userId),
   });
-  return task;
+  return serializeTask(task);
 };
 
 export const getTasks = async (userId: string, query: TaskQuery) => {
@@ -21,37 +37,24 @@ export const getTasks = async (userId: string, query: TaskQuery) => {
   const limit = parseInt(query.limit || '10');
   const skip = (page - 1) * limit;
 
-  // Build filters
-  const where: any = { userId };
+  const filter: any = { userId: toObjectId(userId) };
 
-  if (query.status) {
-    where.status = query.status;
-  }
-
-  if (query.priority) {
-    where.priority = query.priority;
-  }
-
+  if (query.status) filter.status = query.status;
+  if (query.priority) filter.priority = query.priority;
   if (query.q) {
-    where.OR = [
-      { title: { contains: query.q } },
-      { description: { contains: query.q } },
+    filter.$or = [
+      { title: { $regex: query.q, $options: 'i' } },
+      { description: { $regex: query.q, $options: 'i' } },
     ];
   }
 
-  // Run query + count in parallel
   const [tasks, total] = await Promise.all([
-    prisma.task.findMany({
-      where,
-      skip,
-      take: limit,
-      orderBy: { createdAt: 'desc' },
-    }),
-    prisma.task.count({ where }),
+    Task.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+    Task.countDocuments(filter),
   ]);
 
   return {
-    tasks,
+    tasks: tasks.map(serializeTask),
     pagination: {
       total,
       page,
@@ -64,15 +67,13 @@ export const getTasks = async (userId: string, query: TaskQuery) => {
 };
 
 export const getTaskById = async (userId: string, taskId: string) => {
-  const task = await prisma.task.findFirst({
-    where: { id: taskId, userId },
-  });
+  const task = await Task.findOne({
+    _id: toObjectId(taskId),
+    userId: toObjectId(userId),
+  }).lean();
 
-  if (!task) {
-    throw new ApiError(404, 'Task not found');
-  }
-
-  return task;
+  if (!task) throw new ApiError(404, 'Task not found');
+  return serializeTask(task);
 };
 
 export const updateTask = async (
@@ -80,45 +81,44 @@ export const updateTask = async (
   taskId: string,
   input: Partial<TaskInput>
 ) => {
-  // Check task exists and belongs to user
   await getTaskById(userId, taskId);
 
-  const task = await prisma.task.update({
-    where: { id: taskId },
-    data: {
-      ...input,
-      dueDate: input.dueDate ? new Date(input.dueDate) : undefined,
-    },
-  });
+  const updateData: any = { ...input };
+  if (input.dueDate !== undefined) {
+    updateData.dueDate = input.dueDate ? new Date(input.dueDate) : null;
+  }
 
-  return task;
+  const task = await Task.findByIdAndUpdate(
+    toObjectId(taskId),
+    { $set: updateData },
+    { new: true, runValidators: true }
+  ).lean();
+
+  if (!task) throw new ApiError(404, 'Task not found');
+  return serializeTask(task);
 };
 
 export const deleteTask = async (userId: string, taskId: string) => {
-  // Check task exists and belongs to user
   await getTaskById(userId, taskId);
-
-  await prisma.task.delete({
-    where: { id: taskId },
-  });
-
+  await Task.findByIdAndDelete(toObjectId(taskId));
   return { message: 'Task deleted successfully' };
 };
 
 export const toggleTaskStatus = async (userId: string, taskId: string) => {
   const task = await getTaskById(userId, taskId);
 
-  // Cycle: PENDING → IN_PROGRESS → COMPLETED → PENDING
   const statusMap: Record<string, 'PENDING' | 'IN_PROGRESS' | 'COMPLETED'> = {
     PENDING: 'IN_PROGRESS',
     IN_PROGRESS: 'COMPLETED',
     COMPLETED: 'PENDING',
   };
 
-  const updatedTask = await prisma.task.update({
-    where: { id: taskId },
-    data: { status: statusMap[task.status] },
-  });
+  const updated = await Task.findByIdAndUpdate(
+    toObjectId(taskId),
+    { $set: { status: statusMap[task.status] } },
+    { new: true }
+  ).lean();
 
-  return updatedTask;
+  if (!updated) throw new ApiError(404, 'Task not found');
+  return serializeTask(updated);
 };
