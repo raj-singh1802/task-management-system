@@ -19,7 +19,7 @@ export interface TaskInput {
   description?: string;
   status?: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
   priority?: 'LOW' | 'MEDIUM' | 'HIGH';
-  dueDate?: string;
+  dueDate?: string | null;        // ← add | null here
 }
 
 export interface TaskQuery {
